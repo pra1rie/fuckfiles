@@ -1,0 +1,2 @@
+#!/bin/bash
+mv -f $sel $1

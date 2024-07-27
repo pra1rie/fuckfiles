@@ -1,0 +1,7 @@
+name "ff"
+description "Fuck File Manager"
+authors "Ren"
+copyright "Copyright © 2024, Ren"
+license "non"
+dependency "ncurses" version="~>1.0.0"
+sourcePaths "sauce"
