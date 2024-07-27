@@ -336,9 +336,11 @@ struct FuckFiles
         case 'l':
         case '\n':
         case KEY_RIGHT:
+            if (!entries.length) break;
             openFile(entries[pos]);
             break;
         case 'e':
+            if (!entries.length) break;
             editFile(entries[pos]);
             break;
         case 's':
@@ -346,6 +348,7 @@ struct FuckFiles
             openShell();
             break;
         case ' ':
+            if (!entries.length) break;
             if (selected.canFind(entries[pos]))
                 selected = selected.remove(selected.countUntil(entries[pos]));
             else
@@ -372,11 +375,11 @@ struct FuckFiles
             // TODO: cursor follow selected file (if dotfiles appear before it, move cursor down with it)
             break;
         case 'n':
-            if (inputbox.text.length && action == InputAction.FIND)
+            if (inputbox.text.length && action == InputAction.FIND && entries.length)
                 searchNext(inputbox.text);
             break;
         case 'N':
-            if (inputbox.text.length && action == InputAction.FIND)
+            if (inputbox.text.length && action == InputAction.FIND && entries.length)
                 searchPrev(inputbox.text);
             break;
         case ctrl('f'):
@@ -475,6 +478,7 @@ struct FuckFiles
 
     bool searchFile(string text, int s, int e, int inc)
     {
+        if (!entries.length) return false;
         for (auto i = s; (s < e && i < e) || (s > e && i > e); i += inc) {
             if (findFile(entries[i], text, i))
                 return true;
