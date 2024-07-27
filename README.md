@@ -1,2 +1,16 @@
 # fuckfiles
-lil file viewer on the terminal
+simple TUI file manager
+
+## Building
+dependencies: dub, ncurses
+
+compile with:
+```sh
+$ make
+```
+
+## Installing
+```sh
+$ make install
+```
+
