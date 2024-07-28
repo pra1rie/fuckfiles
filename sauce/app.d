@@ -221,6 +221,7 @@ struct FuckFiles
         Entry[] dir_entries;
         Entry[] file_entries;
 
+        // TODO: symlinks are broken as fuck
         // list directories first
         foreach (entry; p.dirEntries(SpanMode.shallow)) {
             auto name = entry.name.split("/")[$-1];
@@ -304,6 +305,12 @@ struct FuckFiles
             break;
         case 'u':
             selected = [];
+            break;
+        case 'w':
+            focusFirstEntry((e) => !e.isDir);
+            break;
+        case 'W':
+            focusFirstEntry((e) => e.isDir);
             break;
         case 'g':
         case KEY_HOME:
@@ -428,7 +435,10 @@ struct FuckFiles
         prev = (p.length == 2)? "/" : p[0..$-1].join("/");
         curr = p[$-1];
 
+        if (!prev.exists)
+            return;
         openDir(prev);
+
         foreach (i; 0..entries.length) {
             if (entries[i].name == curr) {
                 pos = cast(int) i;
@@ -440,6 +450,7 @@ struct FuckFiles
 
     void openDir(string path)
     {
+        path = path.startsWith("//")? path[1..$] : path;
         listEntries(path);
         // XXX: maybe save directories i already opened and select last selected file from that directory
         pos = off = 0;
@@ -496,6 +507,17 @@ struct FuckFiles
     {
         if (!searchFile(text, pos-1, 0, -1))
             searchFile(text, entries.length.to!int-1, pos-1, -1);
+    }
+
+    void focusFirstEntry(bool function(Entry) f)
+    {
+        foreach (i, entry; entries) {
+            if (f(entry)) {
+                pos = i.to!int;
+                break;
+            }
+        }
+        moveCursor(0);
     }
 
     void moveCursor(int p)
