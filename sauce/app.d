@@ -230,22 +230,12 @@ struct FuckFiles
         Entry[] dir_entries;
         Entry[] file_entries;
 
-        // TODO: symlinks are broken as fuck
-        // list directories first
         foreach (entry; p.dirEntries(SpanMode.shallow)) {
             try {
                 auto name = entry.name.split("/")[$-1];
-                if ((name[0] == '.' && !show_hidden) || !entry.name.isDir) continue;
-                dir_entries ~= Entry(path, name, entry.size);
-            } catch (Exception) continue;
-        }
-
-        // ... then files
-        foreach (entry; p.dirEntries(SpanMode.shallow)) {
-            try {
-                auto name = entry.name.split("/")[$-1];
-                if ((name[0] == '.' && !show_hidden) || entry.name.isDir) continue;
-                file_entries ~= Entry(path, name, entry.size);
+                if ((name[0] == '.' && !show_hidden)) continue;
+                if (entry.name.isDir) dir_entries ~= Entry(path, name, entry.size);
+                else file_entries ~= Entry(path, name, entry.size);
             } catch (Exception) continue;
         }
 
