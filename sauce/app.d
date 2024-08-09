@@ -127,7 +127,7 @@ struct Entry
 {
     string path;
     string name;
-    ulong size;
+    /* ulong size; */
 
     bool isDir()
     {
@@ -225,17 +225,16 @@ struct FuckFiles
 
         path = p;
         entries = []; // long live garbage collection
-
-        // honestly this is kinda dumb. but it works so its prolly not gonna change
         Entry[] dir_entries;
         Entry[] file_entries;
 
-        foreach (entry; p.dirEntries(SpanMode.shallow)) {
+        foreach (e; path.dirEntries(SpanMode.shallow)) {
             try {
-                auto name = entry.name.split("/")[$-1];
-                if ((name[0] == '.' && !show_hidden)) continue;
-                if (entry.name.isDir) dir_entries ~= Entry(path, name, entry.size);
-                else file_entries ~= Entry(path, name, entry.size);
+                auto name = e.name.split("/")[$-1];
+                if (name[0] == '.' && !show_hidden) continue;
+                auto entry = Entry(path, name); // , e.size);
+                if (e.name.isDir) dir_entries ~= entry;
+                else file_entries ~= entry;
             } catch (Exception) continue;
         }
 
