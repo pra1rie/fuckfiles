@@ -146,6 +146,22 @@ struct Entry
     }
 }
 
+enum InputAction {
+    NONE,
+    FIND,
+    EXEC,
+    OPEN,
+}
+
+string actionToString(InputAction s) {
+    switch (s) {
+    case InputAction.FIND: return "Find: ";
+    case InputAction.EXEC: return "Run: ";
+    case InputAction.OPEN: return "Open: ";
+    default: return "None: ";
+    }
+}
+
 struct FuckFiles
 {
     Entry[] entries;
@@ -158,13 +174,6 @@ struct FuckFiles
     int screen_w, screen_h;
     Input inputbox;
     InputAction action;
-    // TODO: 'Open file with'
-
-    enum InputAction {
-        NONE,
-        FIND,
-        EXEC,
-    }
 
     this(bool hidden)
     {
@@ -224,16 +233,20 @@ struct FuckFiles
         // TODO: symlinks are broken as fuck
         // list directories first
         foreach (entry; p.dirEntries(SpanMode.shallow)) {
-            auto name = entry.name.split("/")[$-1];
-            if ((name[0] == '.' && !show_hidden) || !entry.name.isDir) continue;
-            dir_entries ~= Entry(path, name, entry.size);
+            try {
+                auto name = entry.name.split("/")[$-1];
+                if ((name[0] == '.' && !show_hidden) || !entry.name.isDir) continue;
+                dir_entries ~= Entry(path, name, entry.size);
+            } catch (Exception) continue;
         }
 
         // ... then files
         foreach (entry; p.dirEntries(SpanMode.shallow)) {
-            auto name = entry.name.split("/")[$-1];
-            if ((name[0] == '.' && !show_hidden) || entry.name.isDir) continue;
-            file_entries ~= Entry(path, name, entry.size);
+            try {
+                auto name = entry.name.split("/")[$-1];
+                if ((name[0] == '.' && !show_hidden) || entry.name.isDir) continue;
+                file_entries ~= Entry(path, name, entry.size);
+            } catch (Exception) continue;
         }
 
         sort!((a, b) => a.name.toLower < b.name.toLower)(dir_entries);
@@ -277,7 +290,7 @@ struct FuckFiles
         attroff(COLOR_PAIR(ColorPairs.STATUS));
 
         if (inputbox.active) {
-            auto text = action == InputAction.FIND? "Find: " : "Run: ";
+            auto text = action.actionToString;
             mvprintw(screen_h-1, 0, text.toStringz);
             inputbox.draw(text.length.to!int, screen_h-1, screen_w-1);
         }
@@ -398,6 +411,11 @@ struct FuckFiles
             action = InputAction.EXEC;
             inputbox.activate();
             break;
+        case 'o':
+            if (!entries.length) break;
+            action = InputAction.OPEN;
+            inputbox.activate();
+            break;
         default:
             break;
         }
@@ -422,6 +440,9 @@ struct FuckFiles
             spawnInPath(path, text);
             listEntries(path);
             moveCursor(0);
+            break;
+        case InputAction.OPEN:
+            openFileWith(entries[pos], text);
             break;
         default:
             break;
@@ -461,6 +482,16 @@ struct FuckFiles
         if (file.isDir)
             return openDir(file.fullName);
         spawnInPath(file.path, format("xdg-open \"%s\"", file.name));
+    }
+
+    void openFileWith(Entry file, string cmd)
+    {
+        auto prog = "\"" ~ file.name ~ "\"";
+        if (selected.length)
+            prog = selected.map!(s => "\"" ~ s.fullName ~ "\"").join(" ");
+        spawnInPath(file.path, format("%s %s", cmd, prog));
+        moveCursor(0);
+        listEntries(path);
     }
 
     void editFile(Entry file)
