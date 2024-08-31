@@ -5,5 +5,4 @@ all:
 
 install: all
 	install $(OUT) /usr/local/bin
-	@mkdir -p ~/.config/ff/scripts
-	install scripts/* ~/.config/ff/scripts
+

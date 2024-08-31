@@ -25,11 +25,6 @@ const ubyte COLOR_DIR     = COLOR_BLUE;
 const ubyte COLOR_FILE    = COLOR_WHITE;
 const ubyte COLOR_STATUS  = COLOR_RED;
 
-const string[] SCRIPTS_PATHS = [
-    "$HOME/ff/scripts/",
-    "$HOME/.config/ff/scripts",
-];
-
 // ???????????????????
 int ctrl(int ch)
 {
@@ -50,11 +45,11 @@ struct Input
     uint cursor;
     bool active;
 
-    void activate()
+    void activate(string t = "", uint c = 0)
     {
         active = true;
-        cursor = 0;
-        text = "";
+        cursor = c;
+        text = t;
     }
 
     void draw(int x, int y, uint max_w)
@@ -127,7 +122,6 @@ struct Entry
 {
     string path;
     string name;
-    /* ulong size; */
 
     bool isDir()
     {
@@ -149,15 +143,19 @@ struct Entry
 enum InputAction {
     NONE,
     FIND,
-    EXEC,
     OPEN,
+    CREATE,
+    RENAME,
+    DELETE,
 }
 
 string actionToString(InputAction s) {
     switch (s) {
     case InputAction.FIND: return "Find: ";
-    case InputAction.EXEC: return "Run: ";
     case InputAction.OPEN: return "Open: ";
+    case InputAction.CREATE: return "Create: ";
+    case InputAction.RENAME: return "Rename: ";
+    case InputAction.DELETE: return "Delete: ";
     default: return "None: ";
     }
 }
@@ -181,39 +179,15 @@ struct FuckFiles
         inputbox = Input("", 0);
     }
 
-    string selectedEntriesAsString()
-    {
-        return selected.map!(e => e.fullName).join(" ");
-    }
-
-    string lookForScriptInPath(string script)
-    {
-        foreach (p; SCRIPTS_PATHS) {
-            auto r = p.replace("$HOME", environment.get("HOME"));
-            if ((r ~ '/' ~ script).exists)
-                return r ~ '/' ~ script;
-        }
-        return null;
-    }
-
     void spawnInPath(string path, string cmd)
     {
         quit();
-        auto script = lookForScriptInPath(cmd.split[0]);
-        // if script exists, replace cmd with it (is this dumb? maybe?)
-        if (script.length) cmd = script ~ ' ' ~ cmd.split[1..$].join(' ');
-
-        // D doesn't have named arguments. i can't just set 'path' and 'env'
+        // D doesn't have named arguments. i can't just set 'path'
         // and leave everything else as default. literally unusable ffs
-        spawnShell(
-                cmd,
-                std.stdio.stdin,
-                std.stdio.stdout,
-                std.stdio.stderr,
-                ["sel": selectedEntriesAsString],
-                Config.none,
-                path,
-                nativeShell).wait;
+        try {
+            spawnShell(cmd, std.stdio.stdin, std.stdio.stdout, std.stdio.stderr,
+                    ["": ""], Config.none, path, nativeShell).wait;
+        } catch (Exception) {}
         removeTheFilesThatNoLongerExistFromSelection();
         init();
     }
@@ -221,26 +195,30 @@ struct FuckFiles
     void listEntries(string p)
     {
         if (!p.exists || !p.isDir)
-            die("Directory '" ~ p ~ "' does not exist.");
+            openPrevDir();
+            /* die("Directory '" ~ p ~ "' does not exist."); */
 
         path = p;
         entries = []; // long live garbage collection
         Entry[] dir_entries;
         Entry[] file_entries;
 
-        foreach (e; path.dirEntries(SpanMode.shallow)) {
-            try {
-                auto name = e.name.split("/")[$-1];
-                if (name[0] == '.' && !show_hidden) continue;
-                auto entry = Entry(path, name); // , e.size);
-                if (e.name.isDir) dir_entries ~= entry;
-                else file_entries ~= entry;
-            } catch (Exception) continue;
-        }
+        // yet another try/catch to save the day
+        try {
+            foreach (e; path.dirEntries(SpanMode.shallow)) {
+                try {
+                    auto name = e.name.split("/")[$-1];
+                    if (name[0] == '.' && !show_hidden) continue;
+                    auto entry = Entry(path, name);
+                    if (e.name.isDir) dir_entries ~= entry;
+                    else file_entries ~= entry;
+                } catch (Exception) continue;
+            }
 
-        sort!((a, b) => a.name.toLower < b.name.toLower)(dir_entries);
-        sort!((a, b) => a.name.toLower < b.name.toLower)(file_entries);
-        entries = dir_entries ~ file_entries;
+            sort!((a, b) => a.name.toLower < b.name.toLower)(dir_entries);
+            sort!((a, b) => a.name.toLower < b.name.toLower)(file_entries);
+            entries = dir_entries ~ file_entries;
+        } catch (Exception) openPrevDir();
     }
 
     void renderEntries()
@@ -254,16 +232,21 @@ struct FuckFiles
 
         foreach (i; off..off+screen_h-3) { // capped
             if (i >= entries.length) break;
-            attron(entries[i].isDir? COLOR_PAIR(ColorPairs.DIR)|A_BOLD : COLOR_PAIR(ColorPairs.FILE));
-            if (pos == i) attron(A_REVERSE);
+            auto attr = entries[i].isDir
+                    ? COLOR_PAIR(ColorPairs.DIR)|A_BOLD
+                    : COLOR_PAIR(ColorPairs.FILE);
 
-            auto name = (entries[i].name.length > screen_w-2)? entries[i].name[0..screen_w-2] : entries[i].name;
+            if (pos == i) attr |= A_REVERSE;
+            attron(attr);
+
+            auto name = (entries[i].name.length > screen_w-2)
+                            ? entries[i].name[0..screen_w-2]
+                            : entries[i].name;
+
             auto sel = (selected.canFind(entries[i])? " * " : " ");
             mvprintw(i - off + 1, 0, (sel ~ name).toStringz);
             printw(entries[i].isExec? "*" : "");
-
-            if (pos == i) attroff(A_REVERSE);
-            attroff(entries[i].isDir? COLOR_PAIR(ColorPairs.DIR)|A_BOLD : COLOR_PAIR(ColorPairs.FILE));
+            attroff(attr);
         }
     }
 
@@ -283,6 +266,19 @@ struct FuckFiles
             mvprintw(screen_h-1, 0, text.toStringz);
             inputbox.draw(text.length.to!int, screen_h-1, screen_w-1);
         }
+        else if (action == InputAction.DELETE) {
+            // RAAAAAAAAAAAAAAHHHHHHHHHHHHHHHHHHHHHHHHHH
+            auto todel = (selected.length? "selection" : entries[pos].name);
+            auto text = action.actionToString ~ todel ~ " [y/n]";
+            move(screen_h-1, 0); clrtoeol();
+            mvprintw(screen_h-1, 0, text.toStringz);
+            if ("yYdD".canFind(getch()))
+                deleteFiles();
+            action = InputAction.NONE;
+            listEntries(path);
+            moveCursor(0);
+            render();
+        }
     }
 
     void update()
@@ -301,7 +297,6 @@ struct FuckFiles
             write_last_dir(path);
             exit(0);
         case ctrl('r'):
-        case 'r': case 'R':
             moveCursor(0);
             listEntries(path);
             break;
@@ -381,7 +376,6 @@ struct FuckFiles
             show_hidden = !show_hidden;
             listEntries(path);
             moveCursor(0);
-            // TODO: cursor follow selected file (if dotfiles appear before it, move cursor down with it)
             break;
         case 'n':
             if (inputbox.text.length && action == InputAction.FIND && entries.length)
@@ -396,14 +390,28 @@ struct FuckFiles
             action = InputAction.FIND;
             inputbox.activate();
             break;
-        case ':':
-            action = InputAction.EXEC;
-            inputbox.activate();
-            break;
         case 'o':
             if (!entries.length) break;
             action = InputAction.OPEN;
             inputbox.activate();
+            break;
+        case 'f':
+            action = InputAction.CREATE;
+            inputbox.activate();
+            break;
+        case 'r':
+            action = InputAction.RENAME;
+            inputbox.activate(entries[pos].name, entries[pos].name.length.to!uint);
+            break;
+        case 'd':
+            if (selected.length || entries.length)
+                action = InputAction.DELETE;
+            break;
+        case 'm':
+            moveFiles();
+            break;
+        case 'c':
+            copyFiles();
             break;
         default:
             break;
@@ -425,13 +433,14 @@ struct FuckFiles
         case InputAction.FIND:
             searchNext(text);
             break;
-        case InputAction.EXEC:
-            spawnInPath(path, text);
-            listEntries(path);
-            moveCursor(0);
-            break;
         case InputAction.OPEN:
-            openFileWith(entries[pos], text);
+            openFileWith(text);
+            break;
+        case InputAction.CREATE:
+            createFiles(text);
+            break;
+        case InputAction.RENAME:
+            renameFile(text);
             break;
         default:
             break;
@@ -448,21 +457,14 @@ struct FuckFiles
         if (!prev.exists)
             return;
         openDir(prev);
-
-        foreach (i; 0..entries.length) {
-            if (entries[i].name == curr) {
-                pos = cast(int) i;
-                break;
-            }
-        }
-        moveCursor(0);
+        focusFirstEntry((e) => (e.name == curr));
+        // focusEntry(curr);
     }
 
     void openDir(string path)
     {
         path = path.startsWith("//")? path[1..$] : path;
         listEntries(path);
-        // XXX: maybe save directories i already opened and select last selected file from that directory
         pos = off = 0;
     }
 
@@ -473,14 +475,66 @@ struct FuckFiles
         spawnInPath(file.path, format("xdg-open \"%s\"", file.name));
     }
 
-    void openFileWith(Entry file, string cmd)
+    string getCurrentOrSelected()
     {
-        auto prog = "\"" ~ file.name ~ "\"";
+        string files;
+        if (entries.length)
+            files = "\"" ~ entries[pos].fullName ~ "\"";
         if (selected.length)
-            prog = selected.map!(s => "\"" ~ s.fullName ~ "\"").join(" ");
-        spawnInPath(file.path, format("%s %s", cmd, prog));
-        moveCursor(0);
+            files = selected.map!(s => "\"" ~ s.fullName ~ "\"").join(" ");
+        return files;
+    }
+
+    void openFileWith(string cmd)
+    {
+        auto files = getCurrentOrSelected();
+        spawnInPath(path, format("%s %s", cmd, files));
         listEntries(path);
+        moveCursor(0);
+    }
+
+    void createFiles(string names)
+    {
+        auto files = names.split;
+        foreach (file; files) {
+            spawnInPath(path, format("%s \"%s\"",
+                        file.endsWith('/')? "mkdir" : "touch", file));
+        }
+        listEntries(path);
+        focusFirstEntry((e) => (files.map!(f => f.endsWith('/')? f[0..$-1] : f).canFind(e.name)));
+    }
+
+    void deleteFiles()
+    {
+        auto files = getCurrentOrSelected();
+        spawnInPath(path, format("rm -rf %s", files));
+        listEntries(path);
+        moveCursor(0);
+    }
+
+    void moveFiles()
+    {
+        auto files = getCurrentOrSelected();
+        spawnInPath(path, format("mv -f %s .", files));
+        listEntries(path);
+        auto fs = files.split('\"').strip!(f => f.empty).map!(f => f.split('/')[$-1]);
+        focusFirstEntry((e) => fs.canFind(e.name));
+    }
+
+    void copyFiles()
+    {
+        auto files = getCurrentOrSelected();
+        spawnInPath(path, format("cp -rf %s .", files));
+        listEntries(path);
+        auto fs = files.split('\"').strip!(f => f.empty).map!(f => f.split('/')[$-1]);
+        focusFirstEntry((e) => fs.canFind(e.name));
+    }
+
+    void renameFile(string name)
+    {
+        spawnInPath(path, format("mv -f \"%s\" \"%s\"", entries[pos].name, name));
+        listEntries(path);
+        focusFirstEntry((e) => e.name == name);
     }
 
     void editFile(Entry file)
@@ -491,9 +545,8 @@ struct FuckFiles
     void openShell()
     {
         spawnInPath(path, "$SHELL");
-        // in case a file has changed
-        moveCursor(0);
         listEntries(path);
+        moveCursor(0);
     }
 
     bool findFile(Entry file, string text, ulong idx)
@@ -529,7 +582,7 @@ struct FuckFiles
             searchFile(text, entries.length.to!int-1, pos-1, -1);
     }
 
-    void focusFirstEntry(bool function(Entry) f)
+    void focusFirstEntry(bool delegate(Entry) f)
     {
         foreach (i, entry; entries) {
             if (f(entry)) {
@@ -566,7 +619,6 @@ void init()
     noecho();
     curs_set(0);
     keypad(stdscr, true);
-
     use_default_colors();
     start_color();
     init_pair(ColorPairs.FILE, COLOR_FILE, -1);
