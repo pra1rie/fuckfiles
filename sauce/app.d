@@ -23,37 +23,33 @@ import deimos.ncurses;
 
 const ubyte COLOR_DIR     = COLOR_BLUE;
 const ubyte COLOR_FILE    = COLOR_WHITE;
+const ubyte COLOR_LINK    = COLOR_GREEN;
 const ubyte COLOR_STATUS  = COLOR_RED;
 
 // ???????????????????
-int ctrl(int ch)
-{
+int ctrl(int ch) {
     return ch & 0x1f;
 }
 
-enum ColorPairs
-{
+enum ColorPairs {
     FILE = 1,
+    LINK,
     DIR,
     STATUS,
-    // TODO: executables???
 }
 
-struct Input
-{
+struct Input {
     string text;
     uint cursor;
     bool active;
 
-    void activate(string t = "", uint c = 0)
-    {
+    void activate(string t = "", uint c = 0) {
         active = true;
         cursor = c;
         text = t;
     }
 
-    void draw(int x, int y, uint max_w)
-    {
+    void draw(int x, int y, uint max_w) {
         foreach (i; 0..max_w) mvprintw(y, x+i, " ");
         mvprintw(y, x, "%.*s", min(text.length, max_w), text.toStringz);
         char ch = (cursor < text.length && text[cursor].isPrintable)? text[cursor] : ' ';
@@ -62,20 +58,19 @@ struct Input
         attroff(A_REVERSE);
     }
 
-    bool update(int ch)
-    {
+    bool update(int ch) {
         switch (ch) {
         case KEY_LEFT:
-            if (cursor > 0)
-                --cursor;
+            if (cursor > 0) --cursor;
             break;
         case KEY_RIGHT:
-            if (cursor < text.length)
-                ++cursor;
+            if (cursor < text.length) ++cursor;
             break;
+        case ctrl('a'):
         case KEY_HOME:
             cursor = 0;
             break;
+        case ctrl('e'):
         case KEY_END:
             cursor = to!uint(text.length);
             break;
@@ -95,47 +90,42 @@ struct Input
             active = false;
             break;
         default:
-            if (ch.isPrintable)
-                addCharacter(ch);
+            if (ch.isPrintable) addCharacter(ch);
             break;
         }
         return false;
     }
 
-    void addCharacter(int ch)
-    {
-        if (cursor == text.length)
-            text ~= ch;
-        else
-            text = text[0..cursor] ~ to!char(ch) ~ text[cursor..$];
+    void addCharacter(int ch) {
+        if (cursor == text.length) text ~= ch;
+        else text = text[0..cursor] ~ to!char(ch) ~ text[cursor..$];
         ++cursor;
     }
 
-    void delCharacter()
-    {
+    void delCharacter() {
         if (cursor == text.length) return;
         text = text[0..cursor] ~ text[cursor+1..$];
     }
 }
 
-struct Entry
-{
+struct Entry {
     string path;
     string name;
 
-    bool isDir()
-    {
+    bool isDir() {
         return fullName.isDir;
     }
 
-    bool isExec()
-    {
+    bool isExec() {
         auto stat = DirEntry(fullName).statBuf();
         return (!(stat.st_mode & S_IFDIR)) && (stat.st_mode & S_IXUSR);
     }
 
-    string fullName()
-    {
+    bool isLink() {
+        return fullName.isSymlink;
+    }
+
+    string fullName() {
         return path ~ "/" ~ name;
     }
 }
@@ -144,6 +134,7 @@ enum InputAction {
     NONE,
     FIND,
     OPEN,
+    EXEC,
     CREATE,
     RENAME,
     DELETE,
@@ -151,17 +142,17 @@ enum InputAction {
 
 string actionToString(InputAction s) {
     switch (s) {
-    case InputAction.FIND: return "Find: ";
-    case InputAction.OPEN: return "Open: ";
-    case InputAction.CREATE: return "Create: ";
-    case InputAction.RENAME: return "Rename: ";
-    case InputAction.DELETE: return "Delete: ";
-    default: return "None: ";
+    case InputAction.FIND:   return " Find ";
+    case InputAction.OPEN:   return " Open ";
+    case InputAction.EXEC:   return " Exec ";
+    case InputAction.CREATE: return " Create ";
+    case InputAction.RENAME: return " Rename ";
+    case InputAction.DELETE: return " Delete ";
+    default: return " None ";
     }
 }
 
-struct FuckFiles
-{
+struct FuckFiles {
     Entry[] entries;
     Entry[] selected;
 
@@ -173,32 +164,23 @@ struct FuckFiles
     Input inputbox;
     InputAction action;
 
-    this(bool hidden)
-    {
+    this(bool hidden) {
         show_hidden = hidden;
         inputbox = Input("", 0);
     }
 
-    void spawnInPath(string path, string cmd)
-    {
+    void spawnInPath(string path, string cmd) {
         quit();
-        // D doesn't have named arguments. i can't just set 'path'
-        // and leave everything else as default. literally unusable ffs
-        // yet another try/catch to save the day
-        try {
-            spawnShell(cmd, std.stdio.stdin, std.stdio.stdout, std.stdio.stderr,
+        try spawnShell(cmd, std.stdio.stdin, std.stdio.stdout, std.stdio.stderr,
                     ["": ""], Config.none, path, nativeShell).wait;
-        } catch (Exception) {}
+        catch (Exception) {}
         removeTheFilesThatNoLongerExistFromSelection();
         init();
     }
 
-    void listEntries(string p)
-    {
+    void listEntries(string p) {
         if (!p.exists || !p.isDir)
             openPrevDir();
-            /* die("Directory '" ~ p ~ "' does not exist."); */
-
         path = p;
         entries = []; // long live garbage collection
         Entry[] dir_entries;
@@ -219,8 +201,7 @@ struct FuckFiles
         entries = dir_entries ~ file_entries;
     }
 
-    void renderEntries()
-    {
+    void renderEntries() {
         if (!entries.length) {
             attron(A_REVERSE|A_BOLD);
             mvprintw(1, 0, " empty ");
@@ -230,10 +211,10 @@ struct FuckFiles
 
         foreach (i; off..off+screen_h-3) { // capped
             if (i >= entries.length) break;
-            auto attr = entries[i].isDir
-                    ? COLOR_PAIR(ColorPairs.DIR)|A_BOLD
-                    : COLOR_PAIR(ColorPairs.FILE);
-
+            auto attr = COLOR_PAIR(ColorPairs.FILE);
+            if (entries[i].isLink) attr = COLOR_PAIR(ColorPairs.LINK);
+            else if (entries[i].isDir) attr = COLOR_PAIR(ColorPairs.DIR);
+            if (entries[i].isDir) attr |= A_BOLD;
             if (pos == i) attr |= A_REVERSE;
             attron(attr);
 
@@ -248,30 +229,35 @@ struct FuckFiles
         }
     }
 
-    void render()
-    {
+    void render() {
         getmaxyx(stdscr, screen_h, screen_w);
         erase();
         renderEntries();
+        auto attr = COLOR_PAIR(ColorPairs.STATUS);
 
-        attron(COLOR_PAIR(ColorPairs.STATUS));
+        attron(attr);
         mvprintw(screen_h-1, 0, "[%d] (%d/%d) %s  ",
                 selected.length, pos+1, entries.length, path.toStringz);
-        attroff(COLOR_PAIR(ColorPairs.STATUS));
+        attroff(attr);
 
         if (inputbox.active) {
-            auto text = action.actionToString;
-            mvprintw(screen_h-1, 0, text.toStringz);
-            inputbox.draw(text.length.to!int, screen_h-1, screen_w-1);
+            auto act = action.actionToString;
+            move(screen_h-1, 0); clrtoeol();
+            attron(attr|A_REVERSE);
+            mvprintw(screen_h-1, 0, act.toStringz);
+            attroff(attr|A_REVERSE);
+            inputbox.draw(act.length.to!int+1, screen_h-1, screen_w-1);
         }
         else if (action == InputAction.DELETE) {
             // RAAAAAAAAAAAAAAHHHHHHHHHHHHHHHHHHHHHHHHHH
-            auto todel = (selected.length? "selection" : entries[pos].name);
-            auto text = action.actionToString ~ todel ~ " [y/n]";
+            auto act = action.actionToString;
+            auto del = selected.length? "selection" : entries[pos].name;
             move(screen_h-1, 0); clrtoeol();
-            mvprintw(screen_h-1, 0, text.toStringz);
-            if ("yYdD".canFind(getch()))
-                deleteFiles();
+            attron(attr|A_REVERSE);
+            mvprintw(screen_h-1, 0, act.toStringz);
+            attroff(attr|A_REVERSE);
+            mvprintw(screen_h-1, act.length.to!int+1, (del ~ " [y/n]").toStringz);
+            if ("yYdD".canFind(getch())) deleteFiles();
             action = InputAction.NONE;
             listEntries(path);
             moveCursor(0);
@@ -279,8 +265,7 @@ struct FuckFiles
         }
     }
 
-    void update()
-    {
+    void update() {
         int ch = getch();
         if (inputbox.active) {
             if (inputbox.update(ch) && inputbox.text.length)
@@ -360,15 +345,12 @@ struct FuckFiles
             break;
         case 'a':
             foreach (entry; entries)
-                if (!selected.canFind(entry))
-                    selected ~= entry;
+                if (!selected.canFind(entry)) selected ~= entry;
             break;
         case 'v':
             foreach (entry; entries)
-                if (selected.canFind(entry))
-                    selected = selected.remove(selected.countUntil(entry));
-                else
-                    selected ~= entry;
+                if (!selected.canFind(entry)) selected ~= entry;
+                else selected = selected.remove(selected.countUntil(entry));
             break;
         case '.':
             show_hidden = !show_hidden;
@@ -391,6 +373,10 @@ struct FuckFiles
         case 'o':
             if (!entries.length) break;
             action = InputAction.OPEN;
+            inputbox.activate();
+            break;
+        case ':':
+            action = InputAction.EXEC;
             inputbox.activate();
             break;
         case 'f':
@@ -417,64 +403,58 @@ struct FuckFiles
     }
 
     // always good to name your functions things that are easy to understand.
-    void removeTheFilesThatNoLongerExistFromSelection()
-    {
+    void removeTheFilesThatNoLongerExistFromSelection() {
         foreach (sel; selected) {
             if (!sel.fullName.exists)
                 selected = selected.remove(selected.countUntil(sel));
         }
     }
 
-    void performActionBasedOnInputAction(string text)
-    {
+    void performActionBasedOnInputAction(string text) {
         switch (action) {
         case InputAction.FIND:
-            searchNext(text);
-            break;
+            return searchNext(text);
         case InputAction.OPEN:
-            openFileWith(text);
-            break;
+            return openFileWith(text);
+        case InputAction.EXEC:
+            return exec(text);
         case InputAction.CREATE:
-            createFiles(text);
-            break;
+            return createFiles(text);
         case InputAction.RENAME:
-            renameFile(text);
-            break;
+            return renameFile(text);
         default:
             break;
         }
     }
 
-    void openPrevDir()
-    {
+    void exec(string cmd) {
+        spawnInPath(path, cmd);
+        listEntries(path);
+    }
+
+    void openPrevDir() {
         string prev, curr;
         auto p = path.split("/");
         prev = (p.length == 2)? "/" : p[0..$-1].join("/");
         curr = p[$-1];
 
-        if (!prev.exists)
-            return;
+        if (!prev.exists) return;
         openDir(prev);
         focusFirstEntry((e) => (e.name == curr));
-        // focusEntry(curr);
     }
 
-    void openDir(string path)
-    {
+    void openDir(string path) {
         path = path.startsWith("//")? path[1..$] : path;
         listEntries(path);
         pos = off = 0;
     }
 
-    void openFile(Entry file)
-    {
-        if (file.isDir)
-            return openDir(file.fullName);
+    void openFile(Entry file) {
+        if (file.isDir) return openDir(file.fullName);
         spawnInPath(file.path, format("xdg-open \"%s\"", file.name));
     }
 
-    string getCurrentOrSelected()
-    {
+    string getCurrentOrSelected() {
         string files;
         if (entries.length)
             files = "\"" ~ entries[pos].fullName ~ "\"";
@@ -483,16 +463,14 @@ struct FuckFiles
         return files;
     }
 
-    void openFileWith(string cmd)
-    {
+    void openFileWith(string cmd) {
         auto files = getCurrentOrSelected();
         spawnInPath(path, format("%s %s", cmd, files));
         listEntries(path);
         moveCursor(0);
     }
 
-    void createFiles(string names)
-    {
+    void createFiles(string names) {
         auto files = names.split;
         foreach (file; files) {
             spawnInPath(path, format("%s \"%s\"",
@@ -502,16 +480,14 @@ struct FuckFiles
         focusFirstEntry((e) => (files.map!(f => f.endsWith('/')? f[0..$-1] : f).canFind(e.name)));
     }
 
-    void deleteFiles()
-    {
+    void deleteFiles() {
         auto files = getCurrentOrSelected();
         spawnInPath(path, format("rm -rf %s", files));
         listEntries(path);
         moveCursor(0);
     }
 
-    void moveFiles()
-    {
+    void moveFiles() {
         auto files = getCurrentOrSelected();
         spawnInPath(path, format("mv -f %s .", files));
         listEntries(path);
@@ -519,8 +495,7 @@ struct FuckFiles
         focusFirstEntry((e) => fs.canFind(e.name));
     }
 
-    void copyFiles()
-    {
+    void copyFiles() {
         auto files = getCurrentOrSelected();
         spawnInPath(path, format("cp -rf %s .", files));
         listEntries(path);
@@ -528,27 +503,23 @@ struct FuckFiles
         focusFirstEntry((e) => fs.canFind(e.name));
     }
 
-    void renameFile(string name)
-    {
+    void renameFile(string name) {
         spawnInPath(path, format("mv -f \"%s\" \"%s\"", entries[pos].name, name));
         listEntries(path);
         focusFirstEntry((e) => e.name == name);
     }
 
-    void editFile(Entry file)
-    {
+    void editFile(Entry file) {
         spawnInPath(file.path, format("$EDITOR \"%s\"", file.name));
     }
 
-    void openShell()
-    {
+    void openShell() {
         spawnInPath(path, "$SHELL");
         listEntries(path);
         moveCursor(0);
     }
 
-    bool findFile(Entry file, string text, ulong idx)
-    {
+    bool findFile(Entry file, string text, ulong idx) {
         // TODO: maybe some sort of fuzzy find
         if (entries[idx].name.toLower.canFind(text.toLower)) {
             pos = idx.to!int;
@@ -558,8 +529,7 @@ struct FuckFiles
         return false;
     }
 
-    bool searchFile(string text, int s, int e, int inc)
-    {
+    bool searchFile(string text, int s, int e, int inc) {
         if (!entries.length) return false;
         for (auto i = s; (s < e && i < e) || (s > e && i > e); i += inc) {
             if (findFile(entries[i], text, i))
@@ -569,20 +539,17 @@ struct FuckFiles
     }
 
 
-    void searchNext(string text)
-    {
+    void searchNext(string text) {
         if (!searchFile(text, pos+1, entries.length.to!int, 1))
             searchFile(text, 0, pos, 1);
     }
 
-    void searchPrev(string text)
-    {
+    void searchPrev(string text) {
         if (!searchFile(text, pos-1, 0, -1))
             searchFile(text, entries.length.to!int-1, pos-1, -1);
     }
 
-    void focusFirstEntry(bool delegate(Entry) f)
-    {
+    void focusFirstEntry(bool delegate(Entry) f) {
         foreach (i, entry; entries) {
             if (f(entry)) {
                 pos = i.to!int;
@@ -592,8 +559,7 @@ struct FuckFiles
         moveCursor(0);
     }
 
-    void moveUp(int n = 1)
-    {
+    void moveUp(int n = 1) {
         pos -= n;
         if (pos-off < 0) off -= n;
         if (pos < 0) {
@@ -602,15 +568,13 @@ struct FuckFiles
         }
     }
 
-    void moveDown(int n = 1)
-    {
+    void moveDown(int n = 1) {
         pos += n;
         if (pos-off >= screen_h-3) off += n;
         if (pos >= entries.length) pos = off = 0;
     }
 
-    void moveCursor(int p)
-    {
+    void moveCursor(int p) {
         if (!entries.length) return;
         if (p == 0) {
             pos = (pos >= entries.length)? cast(int) entries.length-1 : pos;
@@ -620,8 +584,7 @@ struct FuckFiles
         else moveUp(-p);
     }
 
-    void movePage(int p)
-    {
+    void movePage(int p) {
         foreach (i; 0..screen_h-3) {
             if (pos+p < 0 || pos+p >= entries.length)
                 break;
@@ -630,8 +593,7 @@ struct FuckFiles
     }
 }
 
-void init()
-{
+void init() {
     initscr();
     raw();
     noecho();
@@ -640,30 +602,27 @@ void init()
     use_default_colors();
     start_color();
     init_pair(ColorPairs.FILE, COLOR_FILE, -1);
+    init_pair(ColorPairs.LINK, COLOR_LINK, -1);
     init_pair(ColorPairs.DIR, COLOR_DIR, -1);
     init_pair(ColorPairs.STATUS, COLOR_STATUS, -1);
 }
 
-void quit()
-{
+void quit() {
     endwin();
     curs_set(1);
 }
 
-void write_last_dir(string dir)
-{
+void write_last_dir(string dir) {
     std.file.write(environment.get("HOME") ~ "/.ffdir", dir);
 }
 
-void die(string err)
-{
+void die(string err) {
     quit();
     stderr.writefln("error: %s", err);
     exit(1);
 }
 
-void main()
-{
+void main() {
     auto files = FuckFiles();
     init();
     scope(exit) {
