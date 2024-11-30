@@ -300,7 +300,7 @@ struct FuckFiles {
         case 'G':
         case KEY_END:
             pos = cast(int) entries.length-1;
-            off = (pos >= screen_h-3)? cast(int) pos-(screen_h-4) : 0;
+            moveCursor(0);
             break;
         case KEY_PPAGE:
             movePage(-1);
@@ -523,7 +523,7 @@ struct FuckFiles {
         // TODO: maybe some sort of fuzzy find
         if (entries[idx].name.toLower.canFind(text.toLower)) {
             pos = idx.to!int;
-            off = (pos > screen_h-4)? pos-(screen_h-4) : 0;
+            moveCursor(0);
             return true;
         }
         return false;
@@ -579,6 +579,7 @@ struct FuckFiles {
         if (p == 0) {
             pos = (pos >= entries.length)? cast(int) entries.length-1 : pos;
             off = (pos-off >= screen_h-3)? cast(int) pos-(screen_h-4) : off;
+            off = (pos-off < 0)? 0 : off;
         }
         else if (p > 0) moveDown(p);
         else moveUp(-p);
