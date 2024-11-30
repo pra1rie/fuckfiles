@@ -184,6 +184,7 @@ struct FuckFiles
         quit();
         // D doesn't have named arguments. i can't just set 'path'
         // and leave everything else as default. literally unusable ffs
+        // yet another try/catch to save the day
         try {
             spawnShell(cmd, std.stdio.stdin, std.stdio.stdout, std.stdio.stderr,
                     ["": ""], Config.none, path, nativeShell).wait;
@@ -203,22 +204,19 @@ struct FuckFiles
         Entry[] dir_entries;
         Entry[] file_entries;
 
-        // yet another try/catch to save the day
-        try {
-            foreach (e; path.dirEntries(SpanMode.shallow)) {
-                try {
-                    auto name = e.name.split("/")[$-1];
-                    if (name[0] == '.' && !show_hidden) continue;
-                    auto entry = Entry(path, name);
-                    if (e.name.isDir) dir_entries ~= entry;
-                    else file_entries ~= entry;
-                } catch (Exception) continue;
-            }
+        foreach (e; path.dirEntries(SpanMode.shallow)) {
+            try {
+                auto name = e.name.split("/")[$-1];
+                if (name[0] == '.' && !show_hidden) continue;
+                auto entry = Entry(path, name);
+                if (e.name.isDir) dir_entries ~= entry;
+                else file_entries ~= entry;
+            } catch (Exception) continue;
+        }
 
-            sort!((a, b) => a.name.toLower < b.name.toLower)(dir_entries);
-            sort!((a, b) => a.name.toLower < b.name.toLower)(file_entries);
-            entries = dir_entries ~ file_entries;
-        } catch (Exception) openPrevDir();
+        sort!((a, b) => a.name.toLower < b.name.toLower)(dir_entries);
+        sort!((a, b) => a.name.toLower < b.name.toLower)(file_entries);
+        entries = dir_entries ~ file_entries;
     }
 
     void renderEntries()
@@ -297,6 +295,7 @@ struct FuckFiles
             write_last_dir(path);
             exit(0);
         case ctrl('r'):
+            clear();
             moveCursor(0);
             listEntries(path);
             break;
@@ -311,13 +310,12 @@ struct FuckFiles
             break;
         case 'g':
         case KEY_HOME:
-            pos = 0;
-            moveCursor(0);
+            pos = off = 0;
             break;
         case 'G':
         case KEY_END:
             pos = cast(int) entries.length-1;
-            moveCursor(0);
+            off = (pos >= screen_h-3)? cast(int) pos-(screen_h-4) : 0;
             break;
         case KEY_PPAGE:
             movePage(-1);
@@ -554,7 +552,7 @@ struct FuckFiles
         // TODO: maybe some sort of fuzzy find
         if (entries[idx].name.toLower.canFind(text.toLower)) {
             pos = idx.to!int;
-            moveCursor(0);
+            off = (pos > screen_h-4)? pos-(screen_h-4) : 0;
             return true;
         }
         return false;
@@ -569,6 +567,7 @@ struct FuckFiles
         }
         return false;
     }
+
 
     void searchNext(string text)
     {
@@ -593,13 +592,32 @@ struct FuckFiles
         moveCursor(0);
     }
 
+    void moveUp(int n = 1)
+    {
+        pos -= n;
+        if (pos-off < 0) off -= n;
+        if (pos < 0) {
+            pos = cast(int) entries.length-1;
+            off = (pos-off >= screen_h-3)? cast(int) pos-(screen_h-4) : 0;
+        }
+    }
+
+    void moveDown(int n = 1)
+    {
+        pos += n;
+        if (pos-off >= screen_h-3) off += n;
+        if (pos >= entries.length) pos = off = 0;
+    }
+
     void moveCursor(int p)
     {
-        // TODO: better scrolling... maybe
-        pos += p;
-        if (pos < 0) pos = cast(int) entries.length-1;
-        if (pos >= entries.length) pos = 0;
-        off = (pos > screen_h/2)? (pos - screen_h/2) : 0;
+        if (!entries.length) return;
+        if (p == 0) {
+            pos = (pos >= entries.length)? cast(int) entries.length-1 : pos;
+            off = (pos-off >= screen_h-3)? cast(int) pos-(screen_h-4) : off;
+        }
+        else if (p > 0) moveDown(p);
+        else moveUp(-p);
     }
 
     void movePage(int p)
