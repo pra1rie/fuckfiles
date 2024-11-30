@@ -671,7 +671,8 @@ void main()
         quit();
     }
 
-    files.listEntries(getcwd());
+    try files.listEntries(getcwd());
+    catch (Exception e) writeln("FOR FUCKS SAKE");
 
     for (;;) {
         files.render();
