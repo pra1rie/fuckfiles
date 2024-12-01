@@ -578,8 +578,8 @@ struct FuckFiles {
         if (!entries.length) return;
         if (p == 0) {
             pos = (pos >= entries.length)? cast(int) entries.length-1 : pos;
-            off = (pos-off >= screen_h-3)? cast(int) pos-(screen_h-4) : off;
-            off = (pos-off < 0)? 0 : off;
+            if (pos-off < 0) off = 0;
+            if (pos-off >= screen_h-3) off = pos-(screen_h-4);
         }
         else if (p > 0) moveDown(p);
         else moveUp(-p);
