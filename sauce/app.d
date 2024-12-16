@@ -10,12 +10,11 @@ import core.stdc.stdlib;
 import core.sys.posix.sys.stat;
 import deimos.ncurses;
 
-// TODO: visual indicator for when file is symlink
-// TODO: config file
-// TODO: maybe have a different color for executables too
-// TODO: allow for mapping keys to running external scripts
 // TODO: bookmarks
+// TODO: config file
 // TODO: multiple tabs
+// TODO: maybe have a different color for executables too?
+// TODO: allow for mapping keys to running external scripts
 // TODO: make selection work between multiple instances
 //      (like, save them to a temp file and read it back when it gets modified)
 // TODO: toggleable split pane (with a file/directory preview)
@@ -519,7 +518,7 @@ struct FuckFiles {
         moveCursor(0);
     }
 
-    bool findFile(Entry file, string text, ulong idx) {
+    bool findFile(Entry file, string text, int idx) {
         // TODO: maybe some sort of fuzzy find
         if (entries[idx].name.toLower.canFind(text.toLower)) {
             pos = idx.to!int;
@@ -540,12 +539,12 @@ struct FuckFiles {
 
 
     void searchNext(string text) {
-        if (!searchFile(text, pos+1, entries.length.to!int, 1))
+        if (pos >= entries.length || !searchFile(text, pos+1, entries.length.to!int, 1))
             searchFile(text, 0, pos, 1);
     }
 
     void searchPrev(string text) {
-        if (!searchFile(text, pos-1, 0, -1))
+        if (pos == 0 || !searchFile(text, pos-1, 0, -1))
             searchFile(text, entries.length.to!int-1, pos-1, -1);
     }
 
