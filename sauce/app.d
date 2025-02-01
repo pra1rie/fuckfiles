@@ -379,8 +379,7 @@ struct FuckFiles {
         case 'b':
             renderBookmarks();
             auto key = ""~cast(char)getch();
-            if (key in marks)
-                listEntries(marks[key]);
+            if (key in marks) openDir(marks[key]);
             break;
         case '.':
             show_hidden = !show_hidden;
