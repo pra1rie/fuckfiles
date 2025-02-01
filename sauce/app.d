@@ -10,7 +10,6 @@ import core.stdc.stdlib;
 import core.sys.posix.sys.stat;
 import deimos.ncurses;
 
-// TODO: bookmarks
 // TODO: config file
 // TODO: multiple tabs
 // TODO: maybe have a different color for executables too?
@@ -156,9 +155,10 @@ struct FuckFiles {
     Entry[] selected;
 
     bool show_hidden;
-    string path; // current path
-    int pos;     // currently hovered file
-    int off;     // cursor offset
+    string[string] marks; // key -> path
+    string path;          // current path
+    int pos;              // currently hovered file
+    int off;              // cursor offset
     int screen_w, screen_h;
     Input inputbox;
     InputAction action;
@@ -166,6 +166,15 @@ struct FuckFiles {
     this(bool hidden) {
         show_hidden = hidden;
         inputbox = Input("", 0);
+    }
+
+    void loadBookmarks() {
+        auto bookmarks = environment.get("FUCK_BOOKMARKS");
+        if (!bookmarks) return;
+        foreach (b; bookmarks.split(';')) {
+            auto mark = b.split(':');
+            marks[mark[0]] = mark[1].expandTilde.asAbsolutePath.to!string;
+        }
     }
 
     void spawnInPath(string path, string cmd) {
@@ -225,6 +234,22 @@ struct FuckFiles {
             mvprintw(i - off + 1, 0, (sel ~ name).toStringz);
             printw(entries[i].isExec? "*" : "");
             attroff(attr);
+        }
+    }
+
+    void renderBookmarks() {
+        erase();
+        if (!marks.length) {
+            attron(A_REVERSE|A_BOLD);
+            mvprintw(1, 0, " no bookmarks ");
+            attroff(A_REVERSE|A_BOLD);
+            return;
+        }
+        int i = 0; // lmao
+        foreach (mark; marks.byKeyValue) {
+            mvprintw(i + 1, 0, " [%s] %s",
+                    mark.key.toStringz, mark.value.toStringz);
+            ++i; // lmfao
         }
     }
 
@@ -350,6 +375,12 @@ struct FuckFiles {
             foreach (entry; entries)
                 if (!selected.canFind(entry)) selected ~= entry;
                 else selected = selected.remove(selected.countUntil(entry));
+            break;
+        case 'b':
+            renderBookmarks();
+            auto key = ""~cast(char)getch();
+            if (key in marks)
+                listEntries(marks[key]);
             break;
         case '.':
             show_hidden = !show_hidden;
@@ -630,6 +661,7 @@ void main() {
         quit();
     }
 
+    files.loadBookmarks();
     try files.listEntries(getcwd());
     catch (Exception e) writeln("FOR FUCKS SAKE");
 
