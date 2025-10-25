@@ -4,5 +4,10 @@ all:
 	dub build --build=release
 
 install: all
-	install $(OUT) /usr/local/bin
+	mkdir -p /usr/local/bin/
+	install -s $(OUT) /usr/local/bin/
 
+uninstall:
+	rm /usr/local/bin/$(OUT)
+
+.PHONY: all install uninstall
