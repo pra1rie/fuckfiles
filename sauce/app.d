@@ -18,10 +18,11 @@ import deimos.ncurses;
 // TODO: toggleable split pane (with a file/directory preview)
 // TODO: allow for use as a file picker?
 
-const ubyte COLOR_DIR     = COLOR_CYAN;
+const bool WRAP_CURSOR    = false;
+const ubyte COLOR_DIR     = COLOR_RED;
 const ubyte COLOR_FILE    = COLOR_WHITE;
 const ubyte COLOR_EXEC    = COLOR_GREEN;
-const ubyte COLOR_LINK    = COLOR_YELLOW;
+const ubyte COLOR_LINK    = COLOR_BLUE;
 const ubyte COLOR_STATUS  = COLOR_RED;
 
 // ???????????????????
@@ -134,6 +135,7 @@ enum InputAction {
     FIND,
     OPEN,
     EXEC,
+    COPY,
     CREATE,
     RENAME,
     DELETE,
@@ -144,6 +146,7 @@ string actionToString(InputAction s) {
     case InputAction.FIND:   return " Find ";
     case InputAction.OPEN:   return " Open ";
     case InputAction.EXEC:   return " Exec ";
+    case InputAction.COPY:   return " Copy ";
     case InputAction.CREATE: return " Create ";
     case InputAction.RENAME: return " Rename ";
     case InputAction.DELETE: return " Delete ";
@@ -406,6 +409,7 @@ struct FuckFiles {
             action = InputAction.OPEN;
             inputbox.activate();
             break;
+        case ctrl('e'):
         case ':':
             action = InputAction.EXEC;
             inputbox.activate();
@@ -423,10 +427,18 @@ struct FuckFiles {
                 action = InputAction.DELETE;
             break;
         case 'm':
-            moveFiles();
+            if (selected.length) moveFiles();
+            else {
+                action = InputAction.RENAME;
+                inputbox.activate(entries[pos].name, entries[pos].name.length.to!uint);
+            }
             break;
         case 'c':
-            copyFiles();
+            if (selected.length) copyFiles();
+            else {
+                action = InputAction.COPY;
+                inputbox.activate(entries[pos].name, entries[pos].name.length.to!uint);
+            }
             break;
         default:
             break;
@@ -449,10 +461,12 @@ struct FuckFiles {
             return openFileWith(text);
         case InputAction.EXEC:
             return exec(text);
+        case InputAction.COPY:
+            return renameFile(text, true);
         case InputAction.CREATE:
             return createFiles(text);
         case InputAction.RENAME:
-            return renameFile(text);
+            return renameFile(text, false);
         default:
             break;
         }
@@ -534,8 +548,8 @@ struct FuckFiles {
         focusFirstEntry((e) => fs.canFind(e.name));
     }
 
-    void renameFile(string name) {
-        spawnInPath(path, format("mv -f \"%s\" \"%s\"", entries[pos].name, name));
+    void renameFile(string name, bool copy = false) {
+        spawnInPath(path, format("%s -f \"%s\" \"%s\"", copy? "cp" : "mv", entries[pos].name, name));
         listEntries(path);
         focusFirstEntry((e) => e.name == name);
     }
@@ -594,15 +608,20 @@ struct FuckFiles {
         pos -= n;
         if (pos-off < 0) off -= n;
         if (pos < 0) {
-            pos = cast(int) entries.length-1;
-            off = (pos-off >= screen_h-3)? cast(int) pos-(screen_h-4) : 0;
+            if (WRAP_CURSOR) {
+                pos = cast(int) entries.length-1;
+                off = (pos-off >= screen_h-3)? cast(int) pos-(screen_h-4) : 0;
+            } else pos = off = 0;
         }
     }
 
     void moveDown(int n = 1) {
         pos += n;
-        if (pos-off >= screen_h-3) off += n;
-        if (pos >= entries.length) pos = off = 0;
+        if (pos-off >= screen_h-3 && pos < entries.length) off += n;
+        if (pos >= entries.length) {
+            if (WRAP_CURSOR) pos = off = 0;
+            else pos = cast(int) entries.length-1;
+        }
     }
 
     void moveCursor(int p) {
