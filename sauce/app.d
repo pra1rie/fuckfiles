@@ -12,16 +12,16 @@ import deimos.ncurses;
 
 // TODO: config file
 // TODO: multiple tabs
-// TODO: maybe have a different color for executables too?
 // TODO: allow for mapping keys to running external scripts
 // TODO: make selection work between multiple instances
 //      (like, save them to a temp file and read it back when it gets modified)
 // TODO: toggleable split pane (with a file/directory preview)
 // TODO: allow for use as a file picker?
 
-const ubyte COLOR_DIR     = COLOR_BLUE;
+const ubyte COLOR_DIR     = COLOR_CYAN;
 const ubyte COLOR_FILE    = COLOR_WHITE;
-const ubyte COLOR_LINK    = COLOR_GREEN;
+const ubyte COLOR_EXEC    = COLOR_GREEN;
+const ubyte COLOR_LINK    = COLOR_YELLOW;
 const ubyte COLOR_STATUS  = COLOR_RED;
 
 // ???????????????????
@@ -32,6 +32,7 @@ int ctrl(int ch) {
 enum ColorPairs {
     FILE = 1,
     LINK,
+    EXEC,
     DIR,
     STATUS,
 }
@@ -222,6 +223,7 @@ struct FuckFiles {
             auto attr = COLOR_PAIR(ColorPairs.FILE);
             if (entries[i].isLink) attr = COLOR_PAIR(ColorPairs.LINK);
             else if (entries[i].isDir) attr = COLOR_PAIR(ColorPairs.DIR);
+            else if (entries[i].isExec) attr = COLOR_PAIR(ColorPairs.EXEC);
             if (entries[i].isDir) attr |= A_BOLD;
             if (pos == i) attr |= A_REVERSE;
             attron(attr);
@@ -301,7 +303,7 @@ struct FuckFiles {
         case ctrl('q'): case ctrl('c'):
         case 'q': case 'Q':
             quit();
-            write_last_dir(path);
+            writeLastDir(path);
             exit(0);
         case ctrl('r'):
             clear();
@@ -633,6 +635,7 @@ void init() {
     start_color();
     init_pair(ColorPairs.FILE, COLOR_FILE, -1);
     init_pair(ColorPairs.LINK, COLOR_LINK, -1);
+    init_pair(ColorPairs.EXEC, COLOR_EXEC, -1);
     init_pair(ColorPairs.DIR, COLOR_DIR, -1);
     init_pair(ColorPairs.STATUS, COLOR_STATUS, -1);
 }
@@ -642,8 +645,8 @@ void quit() {
     curs_set(1);
 }
 
-void write_last_dir(string dir) {
-    std.file.write(environment.get("HOME") ~ "/.ffdir", dir);
+void writeLastDir(string dir) {
+    std.file.write("/tmp/ffdir", dir);
 }
 
 void die(string err) {
@@ -656,7 +659,7 @@ void main() {
     auto files = FuckFiles();
     init();
     scope(exit) {
-        write_last_dir(files.path);
+        writeLastDir(files.path);
         quit();
     }
 
