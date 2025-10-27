@@ -10,7 +10,7 @@ import core.stdc.stdlib;
 import core.sys.posix.sys.stat;
 import deimos.ncurses;
 
-// TODO: config file
+// TODO: make it more customizable (either by a config file or environment variables)
 // TODO: multiple tabs
 // TODO: allow for mapping keys to running external scripts
 // TODO: make selection work between multiple instances
@@ -18,7 +18,6 @@ import deimos.ncurses;
 // TODO: toggleable split pane (with a file/directory preview)
 // TODO: allow for use as a file picker?
 
-const bool WRAP_CURSOR    = false;
 const ubyte COLOR_DIR     = COLOR_RED;
 const ubyte COLOR_FILE    = COLOR_WHITE;
 const ubyte COLOR_EXEC    = COLOR_GREEN;
@@ -159,6 +158,7 @@ struct FuckFiles {
     Entry[] selected;
 
     bool show_hidden;
+    bool wrap_cursor;
     string[string] marks; // key -> path
     string path;          // current path
     int pos;              // currently hovered file
@@ -172,12 +172,18 @@ struct FuckFiles {
         inputbox = Input("", 0);
     }
 
-    void loadBookmarks() {
+    void loadVariables() {
         auto bookmarks = environment.get("FUCK_BOOKMARKS");
-        if (!bookmarks) return;
-        foreach (b; bookmarks.split(';')) {
-            auto mark = b.split(':');
-            marks[mark[0]] = mark[1].expandTilde.asAbsolutePath.to!string;
+        auto wrap_curs = environment.get("FUCK_WRAP_CURSOR");
+        if (bookmarks) {
+            foreach (b; bookmarks.split(';')) {
+                auto mark = b.split(':');
+                marks[mark[0]] = mark[1].expandTilde.asAbsolutePath.to!string;
+            }
+        }
+        if (wrap_curs) {
+            // it's easier to define what counts as FALSE than what counts as TRUE
+            wrap_cursor = !(["", "0", "false", "no"].canFind(wrap_curs.toLower));
         }
     }
 
@@ -608,7 +614,7 @@ struct FuckFiles {
         pos -= n;
         if (pos-off < 0) off -= n;
         if (pos < 0) {
-            if (WRAP_CURSOR) {
+            if (wrap_cursor) {
                 pos = cast(int) entries.length-1;
                 off = (pos-off >= screen_h-3)? cast(int) pos-(screen_h-4) : 0;
             } else pos = off = 0;
@@ -619,7 +625,7 @@ struct FuckFiles {
         pos += n;
         if (pos-off >= screen_h-3 && pos < entries.length) off += n;
         if (pos >= entries.length) {
-            if (WRAP_CURSOR) pos = off = 0;
+            if (wrap_cursor) pos = off = 0;
             else pos = cast(int) entries.length-1;
         }
     }
@@ -682,7 +688,7 @@ void main() {
         quit();
     }
 
-    files.loadBookmarks();
+    files.loadVariables();
     try files.listEntries(getcwd());
     catch (Exception e) writeln("FOR FUCKS SAKE");
 
