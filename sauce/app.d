@@ -555,7 +555,7 @@ struct FuckFiles {
     }
 
     void renameFile(string name, bool copy = false) {
-        spawnInPath(path, format("%s -f \"%s\" \"%s\"", copy? "cp" : "mv", entries[pos].name, name));
+        spawnInPath(path, format("%s -f \"%s\" \"%s\"", copy? "cp -r" : "mv", entries[pos].name, name));
         listEntries(path);
         focusFirstEntry((e) => e.name == name);
     }
