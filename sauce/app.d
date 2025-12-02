@@ -60,10 +60,10 @@ struct Input {
     bool update(int ch) {
         switch (ch) {
         case KEY_LEFT:
-            if (cursor > 0) --cursor;
+            moveChar(-1);
             break;
         case KEY_RIGHT:
-            if (cursor < text.length) ++cursor;
+            moveChar(1);
             break;
         case ctrl('a'):
         case KEY_HOME:
@@ -74,12 +74,10 @@ struct Input {
             cursor = to!uint(text.length);
             break;
         case KEY_DC:
-            delCharacter();
+            delChar(1);
             break;
         case KEY_BACKSPACE:
-            if (cursor == 0) break;
-            --cursor;
-            delCharacter();
+            delChar(-1);
             break;
         case '\n':
             active = false;
@@ -89,20 +87,62 @@ struct Input {
             active = false;
             break;
         default:
-            if (ch.isPrintable) addCharacter(ch);
+            if (ch.isPrintable) addChar(ch);
+            else switch (keyname(ch).fromStringz) {
+            default: break;
+            case "kLFT5":
+                moveWord(-1);
+                break;
+            case "kRIT5":
+                moveWord(1);
+                break;
+            case "^H":
+                delWord(-1);
+                break;
+            case "kDC5":
+                delWord(1);
+                break;
+            }
             break;
         }
         return false;
     }
 
-    void addCharacter(int ch) {
+private:
+    void moveChar(int dir) {
+        if (dir < 0? cursor > 0 : cursor < text.length)
+            cursor += dir;
+    }
+
+    void moveWord(int dir) {
+        while (dir < 0? cursor > 0 : cursor < text.length) {
+            moveChar(dir);
+            if (!isAlphaNum(text[cursor])) break;
+        }
+    }
+
+    void delWord(int dir) {
+        // FIXME: it kinda works but looks goofy as fuck
+        int old_cur = cursor;
+        moveWord(dir);
+        int new_cur = cursor;
+        cursor = old_cur;
+        while (cursor != new_cur) {
+            if (dir < 0) moveChar(dir);
+            else --new_cur;
+            delChar(1);
+        }
+    }
+
+    void addChar(int ch) {
         if (cursor == text.length) text ~= ch;
         else text = text[0..cursor] ~ to!char(ch) ~ text[cursor..$];
         ++cursor;
     }
 
-    void delCharacter() {
-        if (cursor == text.length) return;
+    void delChar(int dir) {
+        if (dir < 0? cursor == 0 : cursor == text.length) return;
+        if (dir < 0) moveChar(-1);
         text = text[0..cursor] ~ text[cursor+1..$];
     }
 }
@@ -588,7 +628,6 @@ struct FuckFiles {
         }
         return false;
     }
-
 
     void searchNext(string text) {
         if (pos >= entries.length || !searchFile(text, pos+1, entries.length.to!int, 1))
