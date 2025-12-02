@@ -178,6 +178,7 @@ enum InputAction {
     CREATE,
     RENAME,
     DELETE,
+    BOOKMARK,
 }
 
 string actionToString(InputAction s) {
@@ -189,6 +190,7 @@ string actionToString(InputAction s) {
     case InputAction.CREATE: return " Create ";
     case InputAction.RENAME: return " Rename ";
     case InputAction.DELETE: return " Delete ";
+    case InputAction.BOOKMARK: return " Bookmark ";
     default: return " None ";
     }
 }
@@ -338,6 +340,20 @@ struct FuckFiles {
             moveCursor(0);
             render();
         }
+        else if (action == InputAction.BOOKMARK) {
+            // TODO: make these actions less shitty and move the
+            //       logic away from the rendering function
+            auto act = action.actionToString;
+            move(screen_h-1, 0); clrtoeol();
+            attron(attr|A_REVERSE);
+            mvprintw(screen_h-1, 0, act.toStringz);
+            attroff(attr|A_REVERSE);
+            mvprintw(screen_h-1, act.length.to!int+1, path.toStringz);
+            int ch = getch();
+            if (isPrintable(ch)) marks[""~cast(char)ch] = path;
+            action = InputAction.NONE;
+            render();
+        }
     }
 
     void update() {
@@ -431,6 +447,9 @@ struct FuckFiles {
             renderBookmarks();
             auto key = ""~cast(char)getch();
             if (key in marks) openDir(marks[key]);
+            break;
+        case ',':
+            action = InputAction.BOOKMARK;
             break;
         case '.':
             show_hidden = !show_hidden;
