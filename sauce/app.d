@@ -231,10 +231,17 @@ struct FuckFiles {
 
     void spawnInPath(string path, string cmd) {
         quit();
+        // literally replacing the variables within the command works better
+        // than setting environment variables because then the shell can
+        // properly escape spaces within file names.
+        if (entries.length) cmd = cmd.replace("$CUR", '\"' ~ entries[pos].fullName ~ '\"');
+        cmd = cmd.replace("$SEL", getCurrentOrSelected());
         try spawnShell(cmd, std.stdio.stdin, std.stdio.stdout, std.stdio.stderr,
-                    ["": ""], Config.none, path, nativeShell).wait;
+                    null, Config.none, path, nativeShell).wait;
         catch (Exception) {}
         removeTheFilesThatNoLongerExistFromSelection();
+        listEntries(path);
+        moveCursor(0);
         init();
     }
 
