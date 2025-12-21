@@ -212,6 +212,7 @@ struct FuckFiles {
     this(bool hidden) {
         show_hidden = hidden;
         inputbox = Input("", 0);
+        marks = new string[string];
     }
 
     void loadVariables() {
@@ -745,7 +746,7 @@ void die(string err) {
     exit(1);
 }
 
-void main() {
+void main(string[] args) {
     auto files = FuckFiles();
     init();
     scope(exit) {
@@ -753,8 +754,10 @@ void main() {
         quit();
     }
 
+    auto path = args.length > 1? args[1] : getcwd();
+
     files.loadVariables();
-    try files.listEntries(getcwd());
+    try files.listEntries(path);
     catch (Exception e) writeln("FOR FUCKS SAKE");
 
     for (;;) {
