@@ -737,7 +737,8 @@ void quit() {
 }
 
 void writeLastDir(string dir) {
-    std.file.write("/tmp/ffdir", dir);
+    auto path = format("/tmp/ffdir.%s", environment.get("USER"));
+    std.file.write(path, dir);
 }
 
 void die(string err) {
